@@ -4,6 +4,10 @@ from lib.github_utils import get_pr_files
 
 app = FastAPI()
 
+@app.get("/")
+async def root():
+    return {"message": "GitHub PR Webhook API is running", "webhook_endpoint": "/webhook"}
+
 @app.post("/webhook")
 async def github_webhook(request: Request):
     payload = await request.json()
