@@ -1,6 +1,6 @@
 import logging
 from fastapi import FastAPI, Request, HTTPException
-from lib.github_utils import get_pr_diffs, get_pr_files
+from lib.github_utils import get_pr_files
 # from lib.agent import run_sanjaya_agent  <-- Import Person 2's function later
 
 # Configure logger
