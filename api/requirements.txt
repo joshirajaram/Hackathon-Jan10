@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pydantic
+pymongo
+voyageai
+fireworks-ai
+PyGithub
+requests
