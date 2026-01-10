@@ -1,16 +1,15 @@
 import logging
 from fastapi import FastAPI, Request, HTTPException
 from lib.github_utils import get_pr_files
-# from lib.agent import run_sanjaya_agent  <-- Import Person 2's function later
+from semantic_memory import find_relevant_doc
 import os
 import json
 import base64
 import requests
 import hmac
 import hashlib
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
-from fastapi import FastAPI, Request, HTTPException
 import uvicorn
 from dotenv import load_dotenv
 
@@ -54,14 +53,60 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     expected = "sha256=" + mac.hexdigest()
     return hmac.compare_digest(expected, signature)
 
-def generate_readme_from_diff(repo_full: str, pr_number: int, diff: list) -> str:
-    """Call Person 2's AI agent with diff."""
-    print("💭 Calling Person 2 AI Agent...")
+def find_relevant_docs_for_diffs(diffs: List[Dict], repo_name: str = "blastradius-demo") -> List[Dict]:
+    """
+    Use semantic memory to find relevant documentation sections for each code diff.
+    
+    Args:
+        diffs: List of file diffs with 'patch' field
+        repo_name: Repository name for filtering
+    
+    Returns:
+        List of relevant documentation sections with file_path and content
+    """
+    relevant_docs = []
+    
+    for file_diff in diffs:
+        patch = file_diff.get("patch", "")
+        if not patch:
+            continue
+        
+        try:
+            # Use semantic memory to find relevant documentation
+            result = find_relevant_doc(patch, repo_name=repo_name, limit=1)
+            if result:
+                relevant_docs.append({
+                    "code_file": file_diff.get("filename", "unknown"),
+                    "relevant_doc": {
+                        "file_path": result.get("file_path"),
+                        "section_name": result.get("section_name"),
+                        "content": result.get("content"),
+                        "score": result.get("score", 0)
+                    }
+                })
+                logger.info(f"📚 Found relevant doc for {file_diff.get('filename')}: {result.get('file_path')} (score: {result.get('score', 0):.4f})")
+        except Exception as e:
+            logger.warning(f"⚠️  Error finding relevant doc for {file_diff.get('filename')}: {e}")
+    
+    return relevant_docs
+
+def generate_readme_from_diff(repo_full: str, pr_number: int, diff: list, relevant_docs: List[Dict] = None) -> str:
+    """
+    Call Person 2's AI agent with diff and relevant documentation context.
+    
+    Args:
+        repo_full: Repository full name
+        pr_number: PR number
+        diff: List of file diffs
+        relevant_docs: Relevant documentation sections found via semantic memory
+    """
+    logger.info("Calling Person 2 AI Agent...")
     url = f"{BRAIN_SERVICE_URL}/generate-readme"
     payload = {
         "repo_full": repo_full,
         "pr_number": pr_number,
-        "diff": diff
+        "diff": diff,
+        "relevant_docs": relevant_docs or []  # Pass semantic memory results
     }
     resp = requests.post(url, json=payload, timeout=60)
     resp.raise_for_status()
@@ -107,7 +152,7 @@ def create_branch(repo_full: str, new_branch: str, default_branch: str) -> None:
     payload = {"ref": f"refs/heads/{new_branch}", "sha": default_sha}
     resp = requests.post(create_url, headers=github_headers(), json=payload, timeout=30)
     if resp.status_code == 422:
-        print(f"Branch {new_branch} already exists, continuing...")
+        logger.info(f"Branch {new_branch} already exists, continuing...")
     else:
         resp.raise_for_status()
 
@@ -126,42 +171,53 @@ def create_pull_request(repo_full: str, head_branch: str, base_branch: str,
 
 def process_merged_pr(repo_full: str, pr_number: int, diff: list) -> PRResult:
     """
-    SIMPLIFIED FLOW:
-    Person 4 → You → Person 2 → GitHub PR
-               ↓      ↓
-            diff   AI README
+    COMPLETE FLOW:
+    Person 4 → You (Semantic Memory) → Person 2 → GitHub PR
+               ↓           ↓              ↓
+            diff    Find relevant docs  AI README
     """
-    print(f"🤖 Processing PR #{pr_number} in {repo_full}")
-    
-    # 1. Call Person 2 AI agent with diff
-    new_readme = generate_readme_from_diff(repo_full, pr_number, diff)
-    
-    # 2. GitHub mechanics
-    default_branch = get_repo_default_branch(repo_full)
-    feature_branch = f"devflow/readme-pr-{pr_number}"
-    
-    print(f"🌿 Creating branch {feature_branch} from {default_branch}")
-    create_branch(repo_full, feature_branch, default_branch)
-    
-    print("✏️ Updating README.md...")
-    existing_sha = get_file_sha(repo_full, feature_branch, "README.md")
-    create_or_update_file(
-        repo_full, "README.md", new_readme, feature_branch,
-        f"docs(readme): auto-update from PR #{pr_number}", existing_sha
-    )
-    
-    print("🚀 Creating PR...")
-    pr = create_pull_request(
-        repo_full, feature_branch, default_branch, pr_number,
-        f"docs(readme): auto-update for PR #{pr_number}",
-        f"""Auto-generated README update from PR #{pr_number}
+    try:
+        logger.info(f"Processing PR #{pr_number} in {repo_full}")
+        
+        # 1. Use semantic memory to find relevant documentation sections
+        logger.info("Searching semantic memory for relevant documentation...")
+        # Normalize repo name to match how it's stored in MongoDB
+        repo_name = repo_full.replace("/", "-").lower()
+        relevant_docs = find_relevant_docs_for_diffs(diff, repo_name=repo_name)
+        logger.info(f"📚 Found {len(relevant_docs)} relevant documentation sections")
+        
+        # 2. Call Person 2 AI agent with diff AND relevant docs
+        new_readme = generate_readme_from_diff(repo_full, pr_number, diff, relevant_docs)
+        
+        # 3. GitHub mechanics
+        default_branch = get_repo_default_branch(repo_full)
+        feature_branch = f"devflow/readme-pr-{pr_number}"
+        
+        logger.info(f"🌿 Creating branch {feature_branch} from {default_branch}")
+        create_branch(repo_full, feature_branch, default_branch)
+        
+        logger.info("✏️ Updating README.md...")
+        existing_sha = get_file_sha(repo_full, feature_branch, "README.md")
+        create_or_update_file(
+            repo_full, "README.md", new_readme, feature_branch,
+            f"docs(readme): auto-update from PR #{pr_number}", existing_sha
+        )
+        
+        logger.info("🚀 Creating PR...")
+        pr = create_pull_request(
+            repo_full, feature_branch, default_branch, pr_number,
+            f"docs(readme): auto-update for PR #{pr_number}",
+            f"""Auto-generated README update from PR #{pr_number}
 
         **Files analyzed ({len(diff)}):**
         {[f.get('filename', 'unknown') for f in diff[:5]]}"""
-            )
-    
-    print(f"✅ Success! New PR: {pr['html_url']}")
-    return PRResult("success", pr["number"], pr['html_url'])
+        )
+        
+        logger.info(f"✅ Success! New PR: {pr['html_url']}")
+        return PRResult("success", pr["number"], pr['html_url'])
+    except Exception as e:
+        logger.error(f"Failed to process PR #{pr_number}: {e}", exc_info=True)
+        raise
 
 app = FastAPI()
 
@@ -171,35 +227,52 @@ async def root():
 
 @app.post("/webhook")
 async def github_webhook(request: Request):
-    payload = await request.json()
-    
-    # 1. FILTER: We only care about Pull Requests
-    if "pull_request" not in payload:
-        return {"msg": "Ignored: Not a PR event"}
-    
-    action = payload.get("action")
-    pr = payload.get("pull_request")
-    merged = pr.get("merged", False)
-    
-    # 2. GUARD: Only proceed if the PR was actually merged
-    if action == "closed" and merged:
-        logger.info(f"🚀 Merge Detected: PR #{pr['number']} - {pr['title']}")
+    try:
+        # Get raw body for signature verification
+        body = await request.body()
+        signature = request.headers.get("X-Hub-Signature-256", "")
         
-        # 3. EXTRACTION: Get the repo details
-        repo_full_name = payload["repository"]["full_name"] # e.g. "octocat/hello-world"
-        pr_number = pr["number"]
+        # Verify webhook signature if secret is configured
+        if GITHUB_WEBHOOK_SECRET and not verify_webhook_signature(body, signature):
+            logger.warning("Invalid webhook signature")
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
         
-        # 4. ACTION: Fetch the changed files (Your logic)
-        changed_files = get_pr_files(repo_full_name, pr_number)
-        logger.info(f"Captured changes for {len(changed_files)} files.")
-        logger.info(f"Changed files: {changed_files}")
+        payload = await request.json()
         
-        process_merged_pr(repo_full_name, pr_number, changed_files)
+        # 1. FILTER: We only care about Pull Requests
+        if "pull_request" not in payload:
+            return {"msg": "Ignored: Not a PR event"}
         
-        return {
-            "status": "success", 
-            "event": "merged", 
-            "files_processed": len(changed_files)
-        }
+        action = payload.get("action")
+        pr = payload.get("pull_request")
+        merged = pr.get("merged", False)
         
-    return {"msg": "Ignored: PR not merged"}
+        # 2. GUARD: Only proceed if the PR was actually merged
+        if action == "closed" and merged:
+            logger.info(f"🚀 Merge Detected: PR #{pr['number']} - {pr['title']}")
+            
+            # 3. EXTRACTION: Get the repo details
+            repo_full_name = payload["repository"]["full_name"]  # e.g. "octocat/hello-world"
+            pr_number = pr["number"]
+            
+            # 4. ACTION: Fetch the changed files
+            changed_files = get_pr_files(repo_full_name, pr_number)
+            logger.info(f"Captured changes for {len(changed_files)} files.")
+            logger.debug(f"Changed files: {[f.get('filename') for f in changed_files]}")
+            
+            # 5. PROCESS: Use semantic memory and update docs
+            result = process_merged_pr(repo_full_name, pr_number, changed_files)
+            
+            return {
+                "status": "success",
+                "event": "merged",
+                "files_processed": len(changed_files),
+                "new_pr_url": result.new_pr_url
+            }
+        
+        return {"msg": "Ignored: PR not merged"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Webhook processing error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

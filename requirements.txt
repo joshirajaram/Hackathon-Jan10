@@ -1,8 +1,19 @@
+# Web Framework
 fastapi
 uvicorn
 pydantic
+
+# Database
 pymongo
+
+# AI/ML Services
 voyageai
+openai
 fireworks-ai
+
+# GitHub Integration
 PyGithub
+
+# Utilities
+python-dotenv
 requests
