@@ -29,12 +29,16 @@ def embed_text(text: str) -> List[float]:
     if fw_key:
         try:
             fw = Fireworks(api_key=fw_key)
-            # Fireworks client embedding call - SDKs vary; this tries the
-            # most common method name and response shape.
+            # Fireworks client embedding call
             resp = fw.embeddings.create(model=model, input=text)
-            return resp["data"][0]["embedding"]
-        except Exception:
-            logging.exception("Fireworks embedding call failed; falling back to local embedding")
+            # Access the embedding from the response object
+            if hasattr(resp, 'data') and len(resp.data) > 0:
+                return resp.data[0].embedding
+            # Fallback to dict access if response is dict-like
+            elif isinstance(resp, dict):
+                return resp["data"][0]["embedding"]
+        except Exception as e:
+            logger.exception(f"Fireworks embedding call failed: {e}; falling back to local embedding")
 
     # Local deterministic fallback (for dev without any API keys)
     vec = [0.0] * 128
