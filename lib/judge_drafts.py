@@ -22,7 +22,7 @@ def judge_verify_update(diff, draft):
     """
 
     response = client.chat.completions.create(
-        model="accounts/fireworks/models/llama-v3p3-8b-instruct",
+        model="accounts/fireworks/models/llama-v3p1-8b-instruct",
         messages=[{"role": "user", "content": JUDGE_PROMPT}]
     )
     
