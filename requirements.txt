@@ -6,3 +6,4 @@ voyageai
 fireworks-ai
 PyGithub
 requests
+dotenv
