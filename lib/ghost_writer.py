@@ -84,6 +84,12 @@ License
 •	Use exactly the same badges/TOC structure from old_readme
 •	Keep tone and style consistent with old_readme
 •	NEVER delete screenshots/badges/license
+•	DO NOT DELETE any sections unless explicitly told by the DIFF
+•	If no changes needed, return the original README exactly
+•	Be concise; avoid fluff
+•	Use markdown code blocks for commands/tables
+•	Use the same section headings as the original README
+•	When adding new sections, follow the existing README style
 •	Always include working code blocks (no placeholders)
 •	Max 2000 lines (concise but complete)
 •	No "I updated..." commentary
