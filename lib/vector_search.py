@@ -74,12 +74,21 @@ def find_relevant_docs(diff_text: str, repo_name: str, top_k: int = 6, min_score
     query = {"repo_name": repo_name, "embedding": {"$exists": True}}
     projection = {"file_path": 1, "embedding": 1}
     cursor = col.find(query, projection)
+    
+    # Convert cursor to list to check if data is accessible
+    docs = list(cursor)
+    logger.info(f"MongoDB query returned {len(docs)} documents for repo '{repo_name}'")
+    if len(docs) == 0:
+        logger.warning(f"No documents found in MongoDB for repo '{repo_name}' with embeddings")
+        return []
+    
+    logger.info(f"Sample document keys: {list(docs[0].keys()) if docs else 'N/A'}")
 
     query_emb = embed_text(diff_text)
 
     # Score each chunk and keep the best score per file_path
     best_scores = {}
-    for doc in cursor:
+    for doc in docs:
         emb = doc.get("embedding")
         if not emb:
             continue
