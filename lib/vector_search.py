@@ -4,7 +4,7 @@ from typing import List, Tuple, Optional
 
 import pymongo
 import logging
-from fireworks.client import Fireworks
+import voyageai
 
 logger = logging.getLogger(__name__)
 
@@ -17,28 +17,22 @@ def get_mongo_db():
 
 
 def embed_text(text: str) -> List[float]:
-    """Return an embedding for `text` using OpenAI's embeddings API.
+    """Return an embedding for `text` using Voyage AI's embeddings API.
 
     Falls back to a deterministic local hashed-vector if no API key is set
-    (useful for offline testing). The production path expects `OPENAI_API_KEY`
+    (useful for offline testing). The production path expects `VOYAGE_API_KEY`
     to be set and an available `voyage-code-3` (1024-dim) or similar model.
     """
-    # Prefer Fireworks if available
-    fw_key = os.environ.get("FIREWORKS_API_KEY")
+    # Use Voyage AI for embeddings
+    voyage_key = os.environ.get("VOYAGE_API_KEY")
     model = os.environ.get("EMBEDDING_MODEL", "voyage-code-3")
-    if fw_key:
+    if voyage_key:
         try:
-            fw = Fireworks(api_key=fw_key)
-            # Fireworks client embedding call
-            resp = fw.embeddings.create(model=model, input=text)
-            # Access the embedding from the response object
-            if hasattr(resp, 'data') and len(resp.data) > 0:
-                return resp.data[0].embedding
-            # Fallback to dict access if response is dict-like
-            elif isinstance(resp, dict):
-                return resp["data"][0]["embedding"]
+            vo = voyageai.Client(api_key=voyage_key)
+            embedding = vo.embed([text], model=model, input_type="query").embeddings[0]
+            return embedding
         except Exception as e:
-            logger.exception(f"Fireworks embedding call failed: {e}; falling back to local embedding")
+            logger.exception(f"Voyage AI embedding call failed: {e}; falling back to local embedding")
 
     # Local deterministic fallback (for dev without any API keys)
     vec = [0.0] * 128
