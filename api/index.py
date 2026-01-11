@@ -20,7 +20,6 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # Environment variables
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
-BRAIN_SERVICE_URL = os.environ["BRAIN_SERVICE_URL"]  # http://localhost:8002 (Person 2)
 GITHUB_API_BASE = "https://api.github.com"
 GITHUB_WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "")  # Optional
 
