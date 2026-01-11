@@ -1,6 +1,7 @@
 import logging
 from fastapi import FastAPI, Request, HTTPException
 from lib.github_utils import get_pr_files
+from lib.orchestrator import generate_readme_from_diff as orchestrator_generate_readme
 # from lib.agent import run_sanjaya_agent  <-- Import Person 2's function later
 import os
 import json
@@ -55,18 +56,9 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 def generate_readme_from_diff(repo_full: str, pr_number: int, diff: list) -> str:
-    """Call Person 2's AI agent with diff."""
-    print("💭 Calling Person 2 AI Agent...")
-    url = f"{BRAIN_SERVICE_URL}/generate-readme"
-    payload = {
-        "repo_full": repo_full,
-        "pr_number": pr_number,
-        "diff": diff
-    }
-    resp = requests.post(url, json=payload, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
-    return data["new_readme_markdown"]
+    """Delegate to local orchestrator which runs vector search + ghost writer."""
+    logger.info("Calling local orchestrator for README generation")
+    return orchestrator_generate_readme(repo_full, pr_number, diff)
 
 # === GITHUB FUNCTIONS (KEEP THESE) ===
 def get_repo_default_branch(repo_full: str) -> str:
@@ -107,7 +99,7 @@ def create_branch(repo_full: str, new_branch: str, default_branch: str) -> None:
     payload = {"ref": f"refs/heads/{new_branch}", "sha": default_sha}
     resp = requests.post(create_url, headers=github_headers(), json=payload, timeout=30)
     if resp.status_code == 422:
-        print(f"Branch {new_branch} already exists, continuing...")
+        logger.info("Branch %s already exists, continuing...", new_branch)
     else:
         resp.raise_for_status()
 
@@ -131,36 +123,40 @@ def process_merged_pr(repo_full: str, pr_number: int, diff: list) -> PRResult:
                ↓      ↓
             diff   AI README
     """
-    print(f"🤖 Processing PR #{pr_number} in {repo_full}")
+    logger.info("🤖 Processing PR #%s in %s", pr_number, repo_full)
     
-    # 1. Call Person 2 AI agent with diff
-    new_readme = generate_readme_from_diff(repo_full, pr_number, diff)
-    
-    # 2. GitHub mechanics
+    # 1. Call orchestrator to get per-file updates (mapping: path -> new content)
+    updates = generate_readme_from_diff(repo_full, pr_number, diff)
+
+    # 2. GitHub mechanics: create branch, write each updated file
     default_branch = get_repo_default_branch(repo_full)
     feature_branch = f"devflow/readme-pr-{pr_number}"
-    
-    print(f"🌿 Creating branch {feature_branch} from {default_branch}")
+
+    logger.info("🌿 Creating branch %s from %s", feature_branch, default_branch)
     create_branch(repo_full, feature_branch, default_branch)
-    
-    print("✏️ Updating README.md...")
-    existing_sha = get_file_sha(repo_full, feature_branch, "README.md")
-    create_or_update_file(
-        repo_full, "README.md", new_readme, feature_branch,
-        f"docs(readme): auto-update from PR #{pr_number}", existing_sha
-    )
-    
-    print("🚀 Creating PR...")
+
+    if not updates:
+        logger.warning("⚠️ Orchestrator produced no updates; nothing to commit.")
+        return PRResult("no_changes", 0, "")
+
+    files_written = []
+    for path, new_content in updates.items():
+        logger.info("✏️ Updating %s...", path)
+        existing_sha = get_file_sha(repo_full, feature_branch, path)
+        create_or_update_file(
+            repo_full, path, new_content, feature_branch,
+            f"docs(readme): auto-update from PR #{pr_number}", existing_sha
+        )
+        files_written.append(path)
+
+    logger.info("🚀 Creating PR with updated docs...")
     pr = create_pull_request(
         repo_full, feature_branch, default_branch, pr_number,
         f"docs(readme): auto-update for PR #{pr_number}",
-        f"""Auto-generated README update from PR #{pr_number}
+        f"Auto-generated documentation updates from PR #{pr_number}\n\nFiles updated ({len(files_written)}):\n" + "\n".join(files_written)
+    )
 
-        **Files analyzed ({len(diff)}):**
-        {[f.get('filename', 'unknown') for f in diff[:5]]}"""
-            )
-    
-    print(f"✅ Success! New PR: {pr['html_url']}")
+    logger.info("✅ Success! New PR: %s", pr['html_url'])
     return PRResult("success", pr["number"], pr['html_url'])
 
 app = FastAPI()
