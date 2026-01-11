@@ -13,7 +13,24 @@ def get_mongo_db():
     uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
     client = pymongo.MongoClient(uri)
     db_name = os.environ.get("MONGO_DB", "BlastRadius")
-    return client[db_name]
+    db = client[db_name]
+    
+    # Log all collections in the database
+    try:
+        collections = db.list_collection_names()
+        logger.info(f"MongoDB URI: {uri}")
+        logger.info(f"Database: {db_name}")
+        logger.info(f"Total collections found: {len(collections)}")
+        logger.info(f"Collections: {collections}")
+        
+        # Log document count for each collection
+        for col_name in collections:
+            count = db[col_name].count_documents({})
+            logger.info(f"  - {col_name}: {count} documents")
+    except Exception as e:
+        logger.error(f"Failed to list MongoDB collections: {e}")
+    
+    return db
 
 
 def embed_text(text: str) -> List[float]:
