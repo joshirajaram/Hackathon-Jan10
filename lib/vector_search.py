@@ -113,6 +113,6 @@ if __name__ == "__main__":
     # Quick manual test: set env MONGO_URI and OPENAI_API_KEY as needed.
     sample_diff = "Added new authentication parameter `api_key` to the login endpoint."
     logger.info("Searching for relevant docs...")
-    hits = find_relevant_docs(sample_diff, repo_name=os.environ.get("REPO_NAME", "blastradius-demo"))
+    hits = find_relevant_docs(sample_diff, repo_name="blastradius-demo")
     for path, score in hits:
         logger.info("%0.4f\t%s", score, path)
