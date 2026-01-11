@@ -1,6 +1,10 @@
 import os
 import logging
+import warnings
 from fireworks.client import Fireworks
+
+# Suppress aiohttp unclosed session warnings
+warnings.filterwarnings("ignore", message=".*Unclosed client session.*")
 
 def read_file(filepath):
     with open(filepath, 'r') as file:
@@ -97,7 +101,7 @@ License
     """
     logger.debug("SYSTEM PROMPT: %s", SYSTEM_PROMPT)
 
-    # Create client and ensure proper cleanup
+    # Create client
     client = Fireworks(api_key=os.environ.get("FIREWORKS_API_KEY"))
     try:
         response = client.chat.completions.create(
@@ -108,11 +112,24 @@ License
             ],
             temperature=0.1
         )
-        return response.choices[0].message.content
-    finally:
-        # Close the client session to prevent warnings
-        if hasattr(client, 'close'):
-            try:
-                client.close()
-            except:
-                pass
+        result = response.choices[0].message.content
+        
+        # Attempt to close internal aiohttp session
+        try:
+            if hasattr(client, '_client') and hasattr(client._client, 'close'):
+                client._client.close()
+            elif hasattr(client, 'client') and hasattr(client.client, 'close'):
+                client.client.close()
+        except:
+            pass
+            
+        return result
+    except Exception as e:
+        logger.error(f"Fireworks API call failed: {e}")
+        # Still attempt cleanup
+        try:
+            if hasattr(client, '_client') and hasattr(client._client, 'close'):
+                client._client.close()
+        except:
+            pass
+        raise
