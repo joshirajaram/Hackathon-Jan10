@@ -90,8 +90,9 @@ def generate_readme_from_diff(repo_full: str, pr_number: int, diff: List[Dict[st
     repo_name = repo_full.split("/")[-1]
     file_updates = {}
 
+    logger.info(f"Using repo_name for vector search: {repo_name}")
     try:
-        hits = vector_search.find_relevant_docs(diff_text, "full-stack-fastapi-template", top_k=12)
+        hits = vector_search.find_relevant_docs(diff_text, repo_name, top_k=12)
         logger.info("Vector search top hits: %s", hits[:12])
     except Exception:
         logger.exception("Vector search failed; no files to update")

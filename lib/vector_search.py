@@ -88,6 +88,10 @@ def find_relevant_docs(diff_text: str, repo_name: str, top_k: int = 6, min_score
     db = get_mongo_db()
     col = db["readme_chunks"]
 
+    # First check all unique repo_names in the collection
+    all_repos = col.distinct("repo_name")
+    logger.info(f"Available repos in MongoDB: {all_repos}")
+
     query = {"repo_name": repo_name, "embedding": {"$exists": True}}
     projection = {"file_path": 1, "embedding": 1}
     cursor = col.find(query, projection)
@@ -97,6 +101,7 @@ def find_relevant_docs(diff_text: str, repo_name: str, top_k: int = 6, min_score
     logger.info(f"MongoDB query returned {len(docs)} documents for repo '{repo_name}'")
     if len(docs) == 0:
         logger.warning(f"No documents found in MongoDB for repo '{repo_name}' with embeddings")
+        logger.warning(f"Try using one of these repo names: {all_repos}")
         return []
     
     logger.info(f"Sample document keys: {list(docs[0].keys()) if docs else 'N/A'}")
