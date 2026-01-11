@@ -7,8 +7,6 @@ def read_file(filepath):
         return file.read()
 
 def draft_readme_update(diff, current_chunk):
-    client = Fireworks(api_key=os.environ.get("FIREWORKS_API_KEY"))
-    
     # Configure logger (follow pattern used in `api/index.py`)
     logging.basicConfig(
         level=logging.INFO,
@@ -93,12 +91,22 @@ License
     """
     logger.debug("SYSTEM PROMPT: %s", SYSTEM_PROMPT)
 
-    response = client.chat.completions.create(
-        model="accounts/fireworks/models/llama-v3p1-70b-instruct",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"DIFF:\n{diff}\n\nCURRENT SECTION:\n{current_chunk}"}
-        ],
-        temperature=0.1
-    )
-    return response.choices[0].message.content
+    # Create client and ensure proper cleanup
+    client = Fireworks(api_key=os.environ.get("FIREWORKS_API_KEY"))
+    try:
+        response = client.chat.completions.create(
+            model="accounts/fireworks/models/llama-v3p1-70b-instruct",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"DIFF:\n{diff}\n\nCURRENT SECTION:\n{current_chunk}"}
+            ],
+            temperature=0.1
+        )
+        return response.choices[0].message.content
+    finally:
+        # Close the client session to prevent warnings
+        if hasattr(client, 'close'):
+            try:
+                client.close()
+            except:
+                pass
